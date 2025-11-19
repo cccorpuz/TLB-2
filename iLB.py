@@ -15,7 +15,7 @@ mu0 = 4e-7 * np.pi # H/m
 # e.g. ['Muscle', 'Fat', 'Bone'] or ['Muscle']
 # Output dictionary of tissue data
 def get_tissue_data_raw(tissue):
-    csv_path = 'C:\\Tissue-Link-Budgeting\\Projects\\FDTD\\cole_cole_tissues_gabriel_et_al.csv'
+    csv_path = 'C:\\TLB-2\\cole_cole_tissues_gabriel_et_al.csv'
     full_data = pd.read_csv(csv_path,header=None,index_col=0).apply(pd.to_numeric, errors='coerce').to_dict('index')
     try:
         tissue_data_raw = full_data[tissue]
