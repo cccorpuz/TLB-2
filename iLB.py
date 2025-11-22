@@ -63,21 +63,38 @@ def calc_impedance(dielectric_model_data, frequencies):
     return impedance
 
 def recursive_ref_coeff(boundary_index, thicknesses, gammas, r):
-
+    print(f'Boundary Index: {boundary_index}')
     # Assuming boundaries are 1-indexed
     if boundary_index == 1:
         thicknesses = np.repeat(thicknesses, len(gammas[0]), axis=0).reshape(-1, len(gammas[0]))
         return r[0] * np.exp(-2 * gammas[0] * thicknesses[0])
     else:
         r_prev = recursive_ref_coeff(boundary_index - 1, thicknesses, gammas, r)
-        print(r_prev)
+        # print(r_prev)
         # After resolving recursively:
-        thicknesses = np.repeat(thicknesses, len(gammas[0]), axis=0).reshape(-1, len(gammas[0]))
+
+        # TODO: understand thickness matrix shapes
+        # thicknesses1 = np.repeat(thicknesses, len(gammas[0]), axis=0).reshape(-1, len(gammas[0]))
+        # print(f'Thicknesses shape: {thicknesses1}')
+
+        thicknesses = np.array(thicknesses)[:, np.newaxis]
+        # print(f'Thicknesses shape: {thicknesses}')
         total_phase = np.sum(gammas[:boundary_index-1] * thicknesses[:boundary_index-1], axis=0)
         r_total = r_prev + (1 - r_prev ** 2) * r[boundary_index-1] * np.exp(-2 * total_phase)
         # TODO: at some point, maybe make sure that you don't need to have infinite reflections... last tested, only a few tenths of dB difference so....
         return r_total
 
+# TODO: turn this into a recursive function so it can handle any number of layers atumoatically
+def compute_g_truncated(r, gamma, thicknesses):
+    d = np.array(thicknesses)
+    g1 = r[0] * np.exp(-2 * gamma[0] * d[0])
+
+    g2 = r[1] * (1 - r[0]**2) * np.exp(-2 * (gamma[0]*d[0] + gamma[1]*d[1]))
+
+    g3 = r[2] * (1 - r[0]**2) * (1 - r[1]**2) * np.exp(-2 * (gamma[0]*d[0] + gamma[1]*d[1] + gamma[2]*d[2]))
+
+    g = g1 + g2 + g3
+    return g
 
 # Input list of materials and thicknesses, frequency range
 # Output S11 over frequency range
@@ -99,13 +116,17 @@ def s11_from_1D_layers(materials, thicknesses, f_start, f_stop, num_points):
     gamma = np.array([np.array(gammas[m]) for m in materials])
     Z = np.array([np.array(impedances[m]) for m in materials])
     r = (Z[1:] - Z[:-1]) / (Z[1:] + Z[:-1])
-    r = np.round(r, 4)
 
-    s11 = recursive_ref_coeff(len(materials) - 1, thicknesses, gamma, r)
+    # s11 = recursive_ref_coeff(len(materials) - 1, thicknesses, gamma, r)
+    s11 = compute_g_truncated(r, gamma, thicknesses)
 
     return s11
 
-
+def read_s11_file(filepath):
+    s11_raw = pd.read_csv(filepath, header=1).to_numpy()
+    if 'xf' in filepath.lower():
+        s11_raw[:,1] = 20 * np.log10(np.abs(s11_raw[:,1] + 1j * s11_raw[:,2]))
+    return s11_raw
 
 # Run this to test the tissue model test and compare to IT'IS frequency chart. 
 def test_tissue_model(tissue):
@@ -119,17 +140,46 @@ def test_tissue_model(tissue):
     plt.grid()
     plt.show()
 
-def test_s11_from_1D_layers(materials):
-    thicknesses = [0.10, 0.01, 0.003, 0.005] # in meters
+def test_s11_from_1D_layers(materials, thicknesses):
     f_start = 1e9
     f_stop = 18e9
     num_points = 1701
     s11 = s11_from_1D_layers(materials, thicknesses, f_start, f_stop, num_points)
     plt.plot(np.linspace(f_start,f_stop,num_points), 20 * np.log10(np.abs(s11)))
+    plt.ylim(-60, 0)
+    plt.xlabel('Frequency (Hz)')
+    plt.ylabel('S11 (dB)')
+    plt.grid()
+    plt.show()
+
+def compare_s11_to_files(materials, thicknesses, filepaths):
+    f_start = 1e9
+    f_stop = 18e9
+    num_points = 1701
+    frequencies = np.linspace(f_start, f_stop, num_points)
+    s11 = s11_from_1D_layers(materials, thicknesses, f_start, f_stop, num_points)
+    plt.plot(frequencies, 20 * np.log10(np.abs(s11)), label='Theoretical S11')
+    for filepath in filepaths:
+        s11_file = read_s11_file(filepath)
+        plt.plot(s11_file[:,0]*1e9, s11_file[:,1], label=f'S11 from {filepath.split("_")[-1].replace(".csv","").upper()}')
+    plt.ylim(-60, 0)
+    plt.xticks(np.arange(1e9, 19e9, 1e9), labels=[str(int(x/1e9)) for x in np.arange(1e9, 19e9, 1e9)])
+    plt.xlabel('Frequency (Hz)')
+    plt.ylabel('S11 (dB)')
+    plt.legend()
     plt.grid()
     plt.show()
     
 if __name__ == "__main__":
-    materials = ['Air1', 'Air2', 'Air4', 'Air1']
+    thicknesses = [0.10, 0.01, 0.003, 0.005] # in meters
+    materials = ['Air1', 'Air1', 'Air4', 'Air1']
+    base_filepath = 'C:\\Users\\corpu\\OneDrive - University of Kansas\\Applied EM Lab Work\\I2S Remote Work\\sim_eval_s11\\'
+    filepaths = ['1-1-4-1_hfss.csv',
+                #  '1-1-4-1_xf.csv',
+                # '1-1-4-1_100mmx100mm_xf.csv'
+                '1-1-4-1_100mmx100mm_ABSxy_xf.csv'
+                 ]
+    filepaths = [base_filepath + fp for fp in filepaths]
     # test_tissue_model('Blood')
-    test_s11_from_1D_layers(materials)
+    # test_s11_from_1D_layers(materials, thicknesses)
+    compare_s11_to_files(materials, thicknesses, filepaths)
