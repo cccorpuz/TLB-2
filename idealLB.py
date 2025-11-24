@@ -1,4 +1,4 @@
-# Ideal Link Budget (iLB)
+# Ideal Link Budget (idealLB)
 # Crispin Corpuz 
 # University of Kansas
 # Created 11/16
@@ -6,6 +6,8 @@
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
+
+# from fdtd import *
 
 # Definitions
 eps0 = 8.854e-12 # F/m
@@ -128,7 +130,18 @@ def read_s11_file(filepath):
         s11_raw[:,1] = 20 * np.log10(np.abs(s11_raw[:,1] + 1j * s11_raw[:,2]))
     return s11_raw
 
-# Run this to test the tissue model test and compare to IT'IS frequency chart. 
+# FDTD specific helper functions
+def get_debye_parameters(tissue):
+    tissue_data = get_tissue_data_raw(tissue)
+    debye_params = {
+        'e_inf': tissue_data[1],
+        'e_d' : tissue_data[2],
+        'tau' : tissue_data[3],
+        'cond': tissue_data[14]
+    }
+    return debye_params
+
+# Test function wrappers to run some general functionality verifications
 def test_tissue_model(tissue):
     a = get_tissue_data_raw(tissue)
     f = np.linspace(1e9, 10e9, 9)
@@ -176,8 +189,9 @@ if __name__ == "__main__":
     base_filepath = 'C:\\Users\\corpu\\OneDrive - University of Kansas\\Applied EM Lab Work\\I2S Remote Work\\sim_eval_s11\\'
     filepaths = ['1-1-4-1_hfss.csv',
                 #  '1-1-4-1_xf.csv',
-                # '1-1-4-1_100mmx100mm_xf.csv'
-                '1-1-4-1_100mmx100mm_ABSxy_xf.csv'
+                # '1-1-4-1_100mmx100mm_xf.csv',
+                # '1-1-4-1_100mmx100mm_ABSxy_xf.csv',
+                '1-1-4-1_500mmx500mm_ABSxy_xf.csv',
                  ]
     filepaths = [base_filepath + fp for fp in filepaths]
     # test_tissue_model('Blood')
