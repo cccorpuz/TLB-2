@@ -7,9 +7,13 @@
 # 5. Run FDTD simulation
 # 6. Process results (S11, SAR, etc.)
 
+import matplotlib.pyplot as plt
+from matplotlib.animation import FuncAnimation
 import numpy as np
 import os
 import pandas as pd
+
+from datetime import datetime
 
 from idealLB import get_debye_parameters
 
@@ -144,11 +148,29 @@ def init_scenario(layer_thicknesses, materials, f_max, source_loc, ppw_setting=1
     for i in range(grid_size):
         Chyh[i] = (1 - (s_m * const_dt) / (2 * u0 * ur)) / (1 + (s_m * const_dt) / (2 * u0 * ur))
         Chye[i] = (const_dt / (u0 * ur * dx)) / (1 + (s_m * const_dt) / (2 * u0 * ur))
+        # Chye[i] = np.sqrt(e0 / u0)
 
     # Electric field
     for i in range(grid_size):
-        Cezhj[i] = (imp0 * Sc / er[i]) / (1 + (sigma[i] * const_dt) / (2 * e0 * er[i]) + (Cje[i] * imp0 * Sc) / (2 * er[i]))
-        Ceze[i] = (1 - (sigma[i] * const_dt) / (2 * e0 * er[i]) + (Cje[i] * imp0 * Sc) / (2 * er[i])) / (1 + (sigma[i] * const_dt) / (2 * e0 * er[i]) + (Cje[i] * imp0 * Sc) / (2 * er[i]))
+        # Cezhj[i] = (imp0 * Sc / er[i]) / (1 + (sigma[i] * const_dt) / (2 * e0 * er[i]) + (Cje[i] * imp0 * Sc) / (2 * er[i]))
+        # Ceze[i] = (1 - (sigma[i] * const_dt) / (2 * e0 * er[i]) + (Cje[i] * imp0 * Sc) / (2 * er[i])) / (1 + (sigma[i] * const_dt) / (2 * e0 * er[i]) + (Cje[i] * imp0 * Sc) / (2 * er[i]))
+        
+        # See Chapter 5.7
+        # TODO: find a place to calculate alpha based on frequency and medium
+        # TODO: use alpha to calculate skin depth and translate to number of spatial steps N_L * dx
+        # TODO: use NL to complete the "st" term below that is used so that we don't need to rely on const_dt?
+        # st = np.pi / ppw * Sc * np.sqrt((1 + (ppw ** 2) / (2 * np.pi * np.pi * ))**2 - 1)
+        Ceze[i] = (1 - sigma[i] * const_dt / (2 * er[i] * e0)) / (1 + sigma[i] * const_dt / (2 * er[i] * e0))
+        Cezhj[i] = (const_dt / (er[i] * e0 * dx)) / (1 + sigma[i] * const_dt / (2 * er[i] * e0))
+
+    # Print out parameters
+    print(f"FDTD Simulation Initialized:\n")
+    print(f"  Total Grid Size: {grid_size} cells")
+    print(f"  Spatial Step Size (dx): {dx} m")
+    print(f"  Time Step Size (dt): {const_dt} s")
+    print(f"  Points per Wavelength (ppw): {ppw}")
+    print(f"  Source Location: {source_location} cells ({source_location * dx} m)")
+        
 
 ################################################################################
 # FDTD Source Setup
@@ -173,27 +195,31 @@ def update_polarization_currents():
 def update_electric_fields():
     global e_field, e_field_prev
     e_field_prev = np.copy(e_field)
-    for i in range(grid_size - 1): # discretized around full time steps
-        e_field[i] = Ceze[i] * e_field[i] + Cezhj[i] * ((h_field[i+1] - h_field[i]) - (1 / 2 * (1 + Cjj[i]) * dx * j_pol[i]))
-        update_total_energy(i)
+    for i in range(1,grid_size): # discretized around full time steps
+        # e_field[i] = Ceze[i] * e_field[i] + Cezhj[i] * ((h_field[i+1] - h_field[i]) - (1 / 2 * (1 + Cjj[i]) * dx * j_pol[i]))
+        e_field[i] = Ceze[i] * e_field[i] + Cezhj[i] * ((h_field[i] - h_field[i-1]))# - (1 / 2 * (1 + Cjj[i]) * dx * j_pol[i]))
     
     # Update the polarization currents in this step too, since we ultimately only care about the electric and magnetic fields
-    update_polarization_currents()
+    # update_polarization_currents()
 
-def tfsf_update():
+def tfsf_update(field):
     # NOTE and TODO: this function only assumes a Gaussian pulse source for right now
     global e_field, h_field, excitation_complete
-    h_field[source_location] -= gaussian_pulse(q_timestep, source_location, 0) * Chye[source_location]
-    e_field[source_location + 1] += gaussian_pulse(q_timestep + 0.5, source_location - 0.5, 0)
+    if field == 'e':
+        e_field[source_location] += gaussian_pulse(q_timestep + 0.5, source_location - 0.5, 0)
+    elif field == 'h':
+        h_field[source_location-1] += -np.sqrt(er[source_location-1] * e0 / u0) * gaussian_pulse(q_timestep, source_location, 0) 
 
-    if (gaussian_pulse(q_timestep + 0.5, source_location - 0.5, 0) < 1e-6) and (not excitation_complete) and q_timestep > 2000:
+    if (gaussian_pulse(q_timestep + 0.5, source_location - 0.5, 0) < 1e-6) and (q_timestep > (3 * ppw)) and not excitation_complete:
         print(f'Excitation complete at time step {q_timestep}.')
         excitation_complete = True
 
-def abc_update():
-    global e_field
-    e_field[0] = e_field[1]
-    e_field[-1] = e_field[-2]
+def abc_update(field):
+    global e_field, h_field
+    if field == 'e':
+        e_field[0] = e_field[1]
+    elif field == 'h':
+        e_field[grid_size - 1] = e_field[grid_size - 2]
 
 ################################################################################
 # FDTD Snapshot
@@ -202,48 +228,71 @@ def e_field_snapshot():
     e_field_snapshots = np.concatenate((e_field_snapshots, np.copy(e_field)))
     return
 
-def save_e_field_snapshot():
-    log_index = 0
-    while True:
-         filename = f'e_field_log_sim{log_index}.csv'
-         if not os.path.exists(filename):
-              break
-         log_index += 1
-    np.savetxt(filename, e_field_snapshot, delimiter=",")
+def save_e_field_snapshot(index=None):
+    global e_field_snapshots
+    if index is None:
+        log_index = 0
+        while True:
+            filename = f'e_field_log_sim{log_index}.csv'
+            if not os.path.exists(filename):
+                break
+            log_index += 1
+    else:
+        filename = f'e_field_log_sim{index}.csv'
+    # e_field_snapshots = e_field_snapshots
+    e_field_snapshots = np.reshape(e_field_snapshots, (grid_size, -1)).T
+    np.savetxt(filename, e_field_snapshots, delimiter=",")
     return
 
 ################################################################################
 # FDTD Energy Tracking
-def update_total_energy(grid_location):
-    global total_energy
-    total_energy += 0.5 * e0 * er[grid_location] * (e_field[grid_location] ** 2)
+def update_total_energy():
+    global total_energy, stop_condition_reached
+    for i in range(grid_size):
+        total_energy += 0.5 * e0 * er[i] * (e_field[i] ** 2)
     return
 
 def check_total_energy():
-    global stop_condition_reached, total_energy
-    if q_timestep % 10 == 0:
-        print(f'Total energy at time step {q_timestep}:\t {10 * np.log10(total_energy)} dB')
-    if (total_energy < threshold_energy) and (q_timestep > 2000):
+    global stop_condition_reached
+    print(f'Total energy at time step {q_timestep}:\t {10 * np.log10(total_energy)} dB')
+    if (total_energy < threshold_energy) and excitation_complete:
         stop_condition_reached = True
-    total_energy = 0.0
     return
 
 ################################################################################
 def run_fdtd_simulation(materials, layer_thicknesses, f_max, source_loc, max_time_steps, threshold=1e-3):
-    init_scenario(layer_thicknesses, materials, f_max, source_loc)
-    global q_timestep
+    init_scenario(layer_thicknesses, materials, f_max, source_loc, ppw_setting=10)
+    global q_timestep, total_energy
+    end_time = datetime.now()
+    last_print_time = datetime.now()
     for t in range(max_time_steps):
         q_timestep = t
+        total_energy = 0.0
+        abc_update('h')
         update_magnetic_fields()
-        tfsf_update()
-        abc_update()
+        tfsf_update('h')
+        
+        abc_update('e')
         update_electric_fields()
+        tfsf_update('e')
+
         e_field_snapshot()
-        check_total_energy()
+        update_total_energy()
+
+        # timing to check for when to print energy!
+        end_time = datetime.now()
+        timediff = end_time - last_print_time
+        if int((timediff.total_seconds() + 1) % 3) == 0:
+            check_total_energy()
+            print(timediff.total_seconds())
+            last_print_time = datetime.now()
+
         if stop_condition_reached:
             print(f'Stop condition reached at time step {q_timestep}.')
             break
-    save_e_field_snapshot()
+    print("FDTD Simulation Complete.")
+    save_e_field_snapshot('test')
+    print("E-field snapshots saved.")
 
 ################################################################################
 if __name__ == "__main__":
@@ -251,6 +300,25 @@ if __name__ == "__main__":
     materials = ['Air1', 'Air4', 'Air1']
     layer_thicknesses = [0.11, 0.003, 0.005]  # in meters
     f_max = 20e9  # 10 GHz
-    source_loc = 0.0  # 5 mm from the left boundary
+    source_loc = 0.0  # 0 mm from the left boundary
     max_time_steps = 100000
+
     run_fdtd_simulation(materials, layer_thicknesses, f_max, source_loc, max_time_steps)
+
+    xs = np.linspace(0,grid_size-1,grid_size) # column, grid location
+    ts = np.linspace(0,q_timestep-1,q_timestep).astype(int) # row, time step
+    print(ts)
+    # print(np.size(e_field_snapshots[0,:]))
+    # print(np.size(e_field_snapshots[:,0]))
+
+    fig, ax = plt.subplots()
+    ax.set(xlim=[0, grid_size], ylim=[np.min(e_field_snapshots),np.max(e_field_snapshots)], xlabel='Grid Location', ylabel='E-Field Intensity')
+    line, = ax.plot([], [], "r-")
+    def update(t):
+        print(f't: {t}')
+        line.set_data(xs, e_field_snapshots[t])
+    
+    ani = FuncAnimation(fig, update, frames=ts, interval=200)
+    plt.show()
+
+
