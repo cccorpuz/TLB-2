@@ -192,6 +192,12 @@ if __name__ == "__main__":
                 # '1-1-4-1_100mmx100mm_xf.csv',
                 # '1-1-4-1_100mmx100mm_ABSxy_xf.csv',
                 '1-1-4-1_500mmx500mm_ABSxy_xf.csv',
+                # '1-1-4-1_2mmx150mm_xf.csv',
+                # '1-1-4-1_10mmx150mm_xf.csv',
+                # '1-1-4-1_10mmx150mm_20x160mmwg_xf.csv',
+                # '1-1-4-1_10mmx150mm_20x30mmwg_swapbc_xf.csv',
+                # '1-1-4-1_10mmx150mm_150x20mmwg_swapbc_xf.csv',
+                # '1-1-4-1_150mmx150mm_xf.csv',
                  ]
     filepaths = [base_filepath + fp for fp in filepaths]
     # test_tissue_model('Blood')
