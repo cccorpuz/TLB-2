@@ -214,7 +214,7 @@ def tfsf_update(field):
     # NOTE and TODO: this function only assumes a Gaussian pulse source for right now
     global e_field, h_field, excitation_complete, q_timestep, stop_condition_reached, source_location
     if field == 'e':
-        e_field[source_location] = gaussian_pulse(q_timestep + 0.5, source_location - 0.5, 0)
+        e_field[source_location] += gaussian_pulse(q_timestep + 0.5, source_location - 0.5, 0)
     elif field == 'h':
         h_field[source_location-1] -= np.sqrt(er[source_location-1] * e0 / u0) * gaussian_pulse(q_timestep, source_location, 0) 
 
@@ -330,9 +330,6 @@ if __name__ == "__main__":
 
     xs = np.linspace(0,grid_size-1,grid_size) # column, grid location
     ts = np.linspace(0,q_timestep-1,q_timestep).astype(int) # row, time step
-    # print(ts)
-    # print(np.size(e_field_snapshots[0,:]))
-    # print(np.size(e_field_snapshots[:,0]))
 
     e_field_snapshots = np.loadtxt(f'e_field_logtest.csv', delimiter=',')
     fig, ax = plt.subplots()
@@ -351,7 +348,3 @@ if __name__ == "__main__":
     
     ani = FuncAnimation(fig, update, frames=ts, interval=10, repeat=True)
     plt.show()
-
-    # print(e_field_snapshots[0,:])
-    # plt.plot(e_field_snapshots[0,:])
-    # plt.show()
