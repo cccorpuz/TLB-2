@@ -49,6 +49,10 @@ sigma = np.array([])
 source_location = 0.0001 # in meters, to be normalized later
 normalized_layer_sizes = np.array([])
 
+e_field_monitor_Location = -1.0
+e_field_monitor_data = np.array([])
+e_field_source = np.array([])
+
 e_field = np.array([])
 e_field_prev = np.array([])
 h_field = np.array([])
@@ -178,11 +182,28 @@ def init_scenario(layer_thicknesses, materials, f_max, source_loc, ppw_setting=1
         
 
 ################################################################################
-# FDTD Source Setup
-def gaussian_pulse(qtime, location, delay): 
+# FDTD Source and Monitor Setup
+def gaussian_pulse(qtime, location, delay, fc=20e9): 
     width = ppw # I think that ppw translates to time because time and space are tied together via the Courant condition and max frequency of interest here
     arg = ((qtime - location - delay) / width) ** 2
-    return np.exp(-arg)
+    return np.exp(-arg) * np.sin(2 * np.pi * fc * qtime * const_dt)
+
+def set_e_field_monitor(location, max_time_steps):
+    # give e_field monitor location in meters, and this automatically converts to grid index
+    global e_field_monitor_Location, e_field_monitor_data, e_field_source
+    e_field_source = np.zeros(max_time_steps)
+    e_field_monitor_data = np.zeros(max_time_steps)
+    e_field_monitor_Location = int(location / dx)
+    return
+
+################################################################################
+# DFT calculations
+def dft(field, time, omega):
+    nfreq = omega.shape[0]
+    field_omega = np.zeros(nfreq, dtype='complex128')
+    for w in range(nfreq):
+        field_omega[w] = np.sum(field * np.exp(1j * omega[w] * time))
+    return field_omega
 
 ################################################################################
 # FDTD Update Equations
@@ -301,6 +322,11 @@ def run_fdtd_simulation(materials, layer_thicknesses, f_max, source_loc, max_tim
         tfsf_update('e')
 
         e_field_snapshot(e_field_log_index_name)
+
+        if e_field_monitor_Location >= 0.0:
+            e_field_monitor_data[t] = e_field[e_field_monitor_Location]
+            e_field_source[t] = e_field[source_location]
+
         # update_total_energy()
 
         # # timing to check for when to print energy!
@@ -319,14 +345,36 @@ def run_fdtd_simulation(materials, layer_thicknesses, f_max, source_loc, max_tim
 
 ################################################################################
 if __name__ == "__main__":
-    # Example usage
+    # Setups
     materials = ['Air1', 'Air4', 'Air1']
     layer_thicknesses = [0.11, 0.003, 0.005]  # in meters
-    f_max = 100e9  # 10 GHz
-    source_loc = 0.01  # 0 mm from the left boundary
+
+    f_max = 100e9  # for the source excitation
+
     max_time_steps = 1000
+    timesteps = np.linspace(0,max_time_steps-1, max_time_steps)
+
+    source_loc = 0.01  # 0 mm from the left boundary
+    set_e_field_monitor(location = 0.0, max_time_steps = max_time_steps)
 
     run_fdtd_simulation(materials, layer_thicknesses, f_max, source_loc, max_time_steps)
+
+    # Post-processing data
+    frequencies = np.linspace(1e9, 20e9, max_time_steps)
+    omegas = 2 * np.pi * frequencies
+
+    e_field_source[100:max_time_steps-1] = 0.0 #zero after excitation done
+    e_field_reflected_dft = dft(e_field_monitor_data, timesteps, omegas)
+    e_field_source_dft = dft(e_field_source, timesteps, omegas)
+
+    R = np.abs(e_field_reflected_dft)**2 / np.abs(e_field_source_dft)**2
+    plt.plot(frequencies, 10*np.log10(R))
+    # plt.plot(e_field_monitor_data)
+    # plt.plot(e_field_source)
+    plt.grid()
+    plt.show()
+    
+    # Visualization
 
     xs = np.linspace(0,grid_size-1,grid_size) # column, grid location
     ts = np.linspace(0,q_timestep-1,q_timestep).astype(int) # row, time step
