@@ -24,6 +24,7 @@ c = 3e8  # speed of light in vacuum
 u0 = 4e-7 * np.pi  # permeability of free space
 e0 = 8.854e-12  # permittivity of free space
 imp0 = np.sqrt(u0 / e0)  # impedance of free space
+f_max = 0.0 
 
 thicknesses = np.array([])
 e_infs = np.array([])
@@ -33,10 +34,10 @@ conductivities = np.array([])
 
 # FDTD parameters
 Sc = 1.0  # Courant number
-dx = 0.0005  # initial spatial step size (m)\
+dx = 1  # initial spatial step size (m)\
 const_dt = 0
 actual_dt = 0  
-ppw = 10 # points per wavelength
+ppw = 20 # points per wavelength
 grid_size = 0
 max_time = 100000
 q_timestep = 0 # current time step
@@ -47,6 +48,7 @@ tau = np.array([])
 sigma = np.array([])
 
 source_location = 0.0001 # in meters, to be normalized later
+source_duration = 0.0
 normalized_layer_sizes = np.array([])
 
 e_field_monitor_Location = -1.0
@@ -75,7 +77,7 @@ stop_condition_reached = False
 
 ################################################################################
 # Initialize the FDTD simulation scenario
-def init_scenario(layer_thicknesses, materials, f_max, source_loc, ppw_setting=10):
+def init_scenario(layer_thicknesses, materials, fmax, source_loc, ppw_setting=15):
     layer_thicknesses = np.concatenate((np.array([0]),layer_thicknesses))
     if len(layer_thicknesses) - 1 == len(materials):
         global thicknesses
@@ -86,17 +88,33 @@ def init_scenario(layer_thicknesses, materials, f_max, source_loc, ppw_setting=1
     if source_loc < 0 or source_loc >= np.sum(thicknesses):
         raise ValueError("Source location must be within the total thickness of the layers.")
 
-    global e_infs, e_ds, taus, conductivities, dx, const_dt, actual_dt, grid_size, ppw
+    global e_infs, e_ds, taus, conductivities, dx, const_dt, actual_dt, grid_size, ppw, f_max
     global Cje, Cjj, Chyh, Chye, Cezhj, Ceze, e_field, e_field_prev, h_field, j_pol
     global er, ed, tau, sigma
     global source_location, normalized_layer_sizes
+    f_max = fmax
+
+    for material in materials:
+        print(material)
+        tissue_data = get_debye_parameters(material)
+        e_infs = np.concatenate((e_infs,[tissue_data['e_inf']]))
+        e_ds = np.concatenate((e_ds, [tissue_data['e_d']]))
+        taus = np.concatenate((taus, [tissue_data['tau']]))
+        conductivities = np.concatenate((conductivities, [tissue_data['cond']]))
 
     # Grid settings
     num_layers = len(thicknesses) - 1
     ppw = ppw_setting
 
-    dx = (c / f_max) / ppw # tenth of a wavelength (m)
-    actual_dt = 1 / f_max # time step size (s)
+    # Determine spatial and temporal step sizes
+    lambda_min = c / (f_max * np.sqrt(np.max(e_infs)))
+    min_physical_thickness = np.min(thicknesses[thicknesses>0]) / 5 # divide by 5 in order to have some margin for smallest feature
+    if lambda_min / ppw < min_physical_thickness:
+        dx = lambda_min / ppw
+    else:
+        print("Minimum physical thickness is smaller than minimum wavelength / ppw")
+        dx = min_physical_thickness
+    # actual_dt = 1 / f_max # time step size (s)
     const_dt = Sc * dx / c # Courant condition time step size (s)
 
     normalized_layer_sizes = np.array(thicknesses) / dx
@@ -123,23 +141,17 @@ def init_scenario(layer_thicknesses, materials, f_max, source_loc, ppw_setting=1
     tau = np.ones(grid_size)
     sigma = np.zeros(grid_size)
 
-    for material in materials:
-        print(material)
-        tissue_data = get_debye_parameters(material)
-        e_infs = np.concatenate((e_infs,[tissue_data['e_inf']]))
-        e_ds = np.concatenate((e_ds, [tissue_data['e_d']]))
-        taus = np.concatenate((taus, [tissue_data['tau']]))
-        conductivities = np.concatenate((conductivities, [tissue_data['cond']]))
-
     for i in range(num_layers):
         layer_start = int(np.sum(normalized_layer_sizes[:i+1])) # subtract one because of zero indexing
         layer_end = int(np.sum(normalized_layer_sizes[:i+2]))
+        # Establish overall dielectric properties
+        print(layer_start)
         for j in range(layer_start, layer_end):
             er[j] = e_infs[i]
             ed[j] = e_ds[i]
             tau[j] = taus[i]
             sigma[j] = conductivities[i]
-
+        
     # Update Coefficients
     # Polarization current
     for i in range(grid_size):
@@ -185,8 +197,28 @@ def init_scenario(layer_thicknesses, materials, f_max, source_loc, ppw_setting=1
 # FDTD Source and Monitor Setup
 def gaussian_pulse(qtime, location, delay, fc=20e9): 
     width = ppw # I think that ppw translates to time because time and space are tied together via the Courant condition and max frequency of interest here
-    arg = ((qtime - location - delay) / width) ** 2
-    return np.exp(-arg) * np.sin(2 * np.pi * fc * qtime * const_dt)
+    arg = ((qtime - location - delay) * const_dt / width) ** 2
+    return np.exp(-arg)
+
+def ricker_wavelet(qtime, location, delay, fc=40e9):
+    global source_duration
+    # source_duration = 
+    # Time in actual seconds
+    t = (qtime - location - delay) * const_dt
+    
+    # Ricker wavelet formula
+    term = (np.pi * fc * t) ** 2
+    return (1 - 2 * term) * np.exp(-term)
+
+def sine_pulse(qtime, location, delay, fc=10e9):
+    # fc = f_max
+    duration = 1 / fc * 2
+    # duration = max_time
+    t = (qtime - location - delay) * const_dt
+    if t >= 0 and t <= duration:
+        return np.sin(2 * np.pi * fc * t)
+    else:
+        return 0.0
 
 def set_e_field_monitor(location, max_time_steps):
     # give e_field monitor location in meters, and this automatically converts to grid index
@@ -197,13 +229,27 @@ def set_e_field_monitor(location, max_time_steps):
     return
 
 ################################################################################
-# DFT calculations
-def dft(field, time, omega):
-    nfreq = omega.shape[0]
-    field_omega = np.zeros(nfreq, dtype='complex128')
-    for w in range(nfreq):
-        field_omega[w] = np.sum(field * np.exp(1j * omega[w] * time))
-    return field_omega
+# Manual DFT calculations if needed
+# otherwise, using numpy.fft.fft for speed
+def dft(signal):
+    N = len(signal)
+    n = np.arange(N, dtype='complex128') # evenly spaced
+    k = n.reshape((N,1)) # turn n into a column vector
+    exp = np.exp(-2j * np.pi * k * n / N)
+    signal_dft = np.dot(exp, signal) / N
+    return signal_dft
+
+def dft_frequencies(timesteps, duration):
+    sampling_rate = (timesteps / duration) 
+    freq_resolution = sampling_rate / timesteps
+    frequencies = np.arange(0, sampling_rate, freq_resolution)
+    return frequencies
+
+def magnitude_spectrum(signal_dft):
+    N = len(signal_dft)
+    magnitudes = 2 * np.abs(signal_dft[:N//2])
+    return magnitudes
+
 
 ################################################################################
 # FDTD Update Equations
@@ -235,9 +281,9 @@ def tfsf_update(field):
     # NOTE and TODO: this function only assumes a Gaussian pulse source for right now
     global e_field, h_field, excitation_complete, q_timestep, stop_condition_reached, source_location
     if field == 'e':
-        e_field[source_location] += gaussian_pulse(q_timestep + 0.5, source_location - 0.5, 0)
+        e_field[source_location] += ricker_wavelet(q_timestep, source_location, 0)
     elif field == 'h':
-        h_field[source_location-1] -= np.sqrt(er[source_location-1] * e0 / u0) * gaussian_pulse(q_timestep, source_location, 0) 
+        h_field[source_location] -= np.sqrt(er[source_location] * e0 / u0) * ricker_wavelet(q_timestep, source_location, 0) 
 
     return
 
@@ -325,7 +371,7 @@ def run_fdtd_simulation(materials, layer_thicknesses, f_max, source_loc, max_tim
 
         if e_field_monitor_Location >= 0.0:
             e_field_monitor_data[t] = e_field[e_field_monitor_Location]
-            e_field_source[t] = e_field[source_location]
+            e_field_source[t] = e_field[source_location+1]
 
         # update_total_energy()
 
@@ -349,9 +395,9 @@ if __name__ == "__main__":
     materials = ['Air1', 'Air4', 'Air1']
     layer_thicknesses = [0.11, 0.003, 0.005]  # in meters
 
-    f_max = 100e9  # for the source excitation
+    f_max = 30e9 # for the source excitation
 
-    max_time_steps = 1000
+    max_time_steps = 5000
     timesteps = np.linspace(0,max_time_steps-1, max_time_steps)
 
     source_loc = 0.01  # 0 mm from the left boundary
@@ -359,23 +405,35 @@ if __name__ == "__main__":
 
     run_fdtd_simulation(materials, layer_thicknesses, f_max, source_loc, max_time_steps)
 
+    ################################################################################
+    # TODO: turn this post-processing into a function to call from other files
     # Post-processing data
-    frequencies = np.linspace(1e9, 20e9, max_time_steps)
-    omegas = 2 * np.pi * frequencies
+    e_field_source[400:max_time_steps] = 0.0 #zero after excitation done
 
-    e_field_source[100:max_time_steps-1] = 0.0 #zero after excitation done
-    e_field_reflected_dft = dft(e_field_monitor_data, timesteps, omegas)
-    e_field_source_dft = dft(e_field_source, timesteps, omegas)
+    e_field_reflected_fft = np.fft.fft(e_field_monitor_data) / len(e_field_monitor_data)
+    e_field_source_fft = np.fft.fft(e_field_source) / len(e_field_source)
+    f = np.fft.fftfreq(max_time_steps, d=const_dt)[:max_time_steps//2]
 
-    R = np.abs(e_field_reflected_dft)**2 / np.abs(e_field_source_dft)**2
-    plt.plot(frequencies, 10*np.log10(R))
+    R = np.abs(e_field_reflected_fft[0:max_time_steps//2] / e_field_source_fft[0:max_time_steps//2])
+    plt.plot(f, 20*np.log10(R))
+
+    # debug plots
+    # plt.plot(f,20*np.log10(np.abs(e_field_source_dft[0:max_time_steps//2])))
+    # plt.plot(f,20*np.log10(np.abs(e_field_reflected_dft[0:max_time_steps//2])))
     # plt.plot(e_field_monitor_data)
     # plt.plot(e_field_source)
+
+    # set plot boundaries
+    plt.xlim(1e9, 20e9)
+    plt.ylim(-60, 0)
+    plt.xlabel('Frequency (Hz)')
+    plt.ylabel('S11 (dB)')
+    plt.xticks(np.arange(1e9, 21e9, 1e9), labels=[str(int(x/1e9)) for x in np.arange(1e9, 21e9, 1e9)])
     plt.grid()
     plt.show()
     
-    # Visualization
-
+    ################################################################################
+    # Time Domain Animation
     xs = np.linspace(0,grid_size-1,grid_size) # column, grid location
     ts = np.linspace(0,q_timestep-1,q_timestep).astype(int) # row, time step
 
