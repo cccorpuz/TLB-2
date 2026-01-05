@@ -165,16 +165,28 @@ def test_s11_from_1D_layers(materials, thicknesses):
     plt.grid()
     plt.show()
 
-def compare_s11_to_files(materials, thicknesses, filepaths):
+def compare_s11_to_files(materials, thicknesses, filepaths, fdtd_timesteps=20000, fdtd_source_location=0.01, include_external_files=False):
+    # FDTD Section
+    # Default max timesteps = 5000
+    # Default source location is 10mm
+    import fdtd
+    fdtd.set_e_field_monitor(fdtd_source_location, fdtd_timesteps)
+    e_source, e_reflected = fdtd.run_fdtd_simulation(materials, thicknesses, fdtd_source_location, fdtd_timesteps)
+    f_fdtd, s11_fdtd_dB =  fdtd.S11_dB(e_source, e_reflected)
+    plt.plot(f_fdtd, s11_fdtd_dB, label='1D FDTD S11')
+
+    # Theoretical Section
     f_start = 1e9
     f_stop = 18e9
     num_points = 1701
     frequencies = np.linspace(f_start, f_stop, num_points)
     s11 = s11_from_1D_layers(materials, thicknesses, f_start, f_stop, num_points)
     plt.plot(frequencies, 20 * np.log10(np.abs(s11)), label='Theoretical S11')
-    for filepath in filepaths:
-        s11_file = read_s11_file(filepath)
-        plt.plot(s11_file[:,0]*1e9, s11_file[:,1], label=f'S11 from {filepath.split("_")[-1].replace(".csv","").upper()}')
+    if include_external_files:
+        for filepath in filepaths:
+            s11_file = read_s11_file(filepath)
+            plt.plot(s11_file[:,0]*1e9, s11_file[:,1], label=f'S11 from {filepath.split("_")[-1].replace(".csv","").upper()}')
+    plt.xlim(1e9, 18e9)
     plt.ylim(-60, 0)
     plt.xticks(np.arange(1e9, 19e9, 1e9), labels=[str(int(x/1e9)) for x in np.arange(1e9, 19e9, 1e9)])
     plt.xlabel('Frequency (Hz)')
@@ -185,7 +197,7 @@ def compare_s11_to_files(materials, thicknesses, filepaths):
     
 if __name__ == "__main__":
     thicknesses = [0.10, 0.01, 0.003, 0.005] # in meters
-    materials = ['Air1', 'Air1', 'Air4', 'Air1']
+    materials = ['Air1', 'Skin', 'Fat', 'Muscle']
     base_filepath = 'C:\\Users\\corpu\\OneDrive - University of Kansas\\Applied EM Lab Work\\I2S Remote Work\\sim_eval_s11\\'
     filepaths = ['1-1-4-1_hfss.csv',
                 #  '1-1-4-1_xf.csv',

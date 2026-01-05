@@ -74,10 +74,15 @@ e_field_snapshots = np.array([])
 excitation_complete = False
 stop_condition_reached = False
 
+# Post Processing Variables
+e_field_reflected_fft = np.array([])
+e_field_source_fft = np.array([])
+frequencies = np.array([])
+
 
 ################################################################################
 # Initialize the FDTD simulation scenario
-def init_scenario(layer_thicknesses, materials, fmax, source_loc, ppw_setting=15):
+def init_scenario(layer_thicknesses, materials, source_loc, fmax=30e9, ppw_setting=15):
     layer_thicknesses = np.concatenate((np.array([0]),layer_thicknesses))
     if len(layer_thicknesses) - 1 == len(materials):
         global thicknesses
@@ -195,20 +200,29 @@ def init_scenario(layer_thicknesses, materials, fmax, source_loc, ppw_setting=15
 
 ################################################################################
 # FDTD Source and Monitor Setup
+
+# Primary broadband waveform for fdtd
+def ricker_wavelet(qtime, location, delay, fc=40e9):
+    global source_duration, excitation_complete
+    # not optimal placement but not a painful calculation at least
+    source_duration = 3 / fc # estimate of source length
+
+    # Time in actual seconds
+    t = (qtime - location - delay) * const_dt
+
+    if t > source_duration:
+        excitation_complete = True
+    
+    # Ricker wavelet formula
+    term = (np.pi * fc * t) ** 2
+    return (1 - 2 * term) * np.exp(-term)
+
+# The following not really used but can be if you need
 def gaussian_pulse(qtime, location, delay, fc=20e9): 
     width = ppw # I think that ppw translates to time because time and space are tied together via the Courant condition and max frequency of interest here
     arg = ((qtime - location - delay) * const_dt / width) ** 2
     return np.exp(-arg)
 
-def ricker_wavelet(qtime, location, delay, fc=40e9):
-    global source_duration
-    # source_duration = 
-    # Time in actual seconds
-    t = (qtime - location - delay) * const_dt
-    
-    # Ricker wavelet formula
-    term = (np.pi * fc * t) ** 2
-    return (1 - 2 * term) * np.exp(-term)
 
 def sine_pulse(qtime, location, delay, fc=10e9):
     # fc = f_max
@@ -342,16 +356,16 @@ def check_total_energy():
     return
 
 ################################################################################
-def run_fdtd_simulation(materials, layer_thicknesses, f_max, source_loc, max_time_steps, threshold=1e-3):
+def run_fdtd_simulation(materials, layer_thicknesses, source_loc, max_time_steps, f_max=30e9,threshold=1e-3):
     e_field_log_index_name = 'test'
-    init_scenario(layer_thicknesses, materials, f_max, source_loc, ppw_setting=10)
+    init_scenario(layer_thicknesses, materials, source_loc, f_max, ppw_setting=10)
     
     # delete existing file if exists
     if os.path.exists(f'e_field_log{e_field_log_index_name}.csv'):
         os.remove(f'e_field_log{e_field_log_index_name}.csv')
         print(f'Existing file {f'e_field_log{e_field_log_index_name}.csv'} found and deleted.')
     
-    global q_timestep, total_energy
+    global q_timestep, total_energy, e_field_monitor_data, e_field_source
     end_time = datetime.now()
     last_print_time = datetime.now()
     total_energy = 0.0
@@ -371,7 +385,10 @@ def run_fdtd_simulation(materials, layer_thicknesses, f_max, source_loc, max_tim
 
         if e_field_monitor_Location >= 0.0:
             e_field_monitor_data[t] = e_field[e_field_monitor_Location]
-            e_field_source[t] = e_field[source_location+1]
+            if excitation_complete:
+                e_field_source[t] = 0.0
+            else:
+                e_field_source[t] = e_field[source_location+1]
 
         # update_total_energy()
 
@@ -388,34 +405,42 @@ def run_fdtd_simulation(materials, layer_thicknesses, f_max, source_loc, max_tim
         #     break
     print("FDTD Simulation Complete.")
     # save_e_field_snapshot(e_field_log_index_name)
+    return e_field_source, e_field_monitor_data
+
+
+# calculate S11 in dB and associated frequencies
+def S11_dB(e_field_source, e_field_monitor_data):
+    global e_field_reflected_fft, e_field_source_fft, frequencies, const_dt
+
+    if (len(e_field_monitor_data) != len(e_field_source)):
+        print("S11 cannot be calculated due to differing input array lengths")
+
+    N = len(e_field_monitor_data)    
+    e_field_reflected_fft = np.fft.fft(e_field_monitor_data) / N
+    e_field_source_fft = np.fft.fft(e_field_source) / N
+    frequencies = np.fft.fftfreq(N, d=const_dt)[:N//2]
+
+    R = np.abs(e_field_reflected_fft[0:N//2] / e_field_source_fft[0:N//2])
+    return frequencies, 20*np.log10(R)
 
 ################################################################################
 if __name__ == "__main__":
     # Setups
-    materials = ['Air1', 'Air4', 'Air1']
-    layer_thicknesses = [0.11, 0.003, 0.005]  # in meters
+    materials = ['Air1', 'Skin', 'Fat', 'Muscle']
+    layer_thicknesses = [0.10, 0.01, 0.003, 0.005] # in meters 
 
-    f_max = 30e9 # for the source excitation
-
-    max_time_steps = 5000
-    timesteps = np.linspace(0,max_time_steps-1, max_time_steps)
-
+    max_time_steps = 20000
     source_loc = 0.01  # 0 mm from the left boundary
+    
     set_e_field_monitor(location = 0.0, max_time_steps = max_time_steps)
 
-    run_fdtd_simulation(materials, layer_thicknesses, f_max, source_loc, max_time_steps)
+    e_source, e_reflected = run_fdtd_simulation(materials, layer_thicknesses, source_loc, max_time_steps)
 
     ################################################################################
     # TODO: turn this post-processing into a function to call from other files
     # Post-processing data
-    e_field_source[400:max_time_steps] = 0.0 #zero after excitation done
-
-    e_field_reflected_fft = np.fft.fft(e_field_monitor_data) / len(e_field_monitor_data)
-    e_field_source_fft = np.fft.fft(e_field_source) / len(e_field_source)
-    f = np.fft.fftfreq(max_time_steps, d=const_dt)[:max_time_steps//2]
-
-    R = np.abs(e_field_reflected_fft[0:max_time_steps//2] / e_field_source_fft[0:max_time_steps//2])
-    plt.plot(f, 20*np.log10(R))
+    f, s11_dB =  S11_dB(e_source, e_reflected)
+    plt.plot(f, s11_dB)
 
     # debug plots
     # plt.plot(f,20*np.log10(np.abs(e_field_source_dft[0:max_time_steps//2])))
@@ -453,4 +478,13 @@ if __name__ == "__main__":
         line.set_data(xs, e_field_snapshots[t])
     
     ani = FuncAnimation(fig, update, frames=ts, interval=10, repeat=True)
+    # Save as MP4 video
+    print("Saving MP4...")
+    ani.save('fdtd_animation.mp4', writer='ffmpeg', fps=30, dpi=150)
+
+    # Save as GIF
+    print("Saving GIF...")
+    ani.save('fdtd_animation.gif', writer='pillow', fps=30, dpi=100)
+
+    print("Animation files saved!")
     plt.show()
