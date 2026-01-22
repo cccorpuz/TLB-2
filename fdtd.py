@@ -68,11 +68,13 @@ Cezhj = np.array([])
 Ceze = np.array([])
 
 total_energy = 0.0
-threshold_energy = 1e-3
+max_energy_reached = 0.0
+threshold_energy = 1e-6 # threshold for energy decay/convergence
 e_field_snapshots = np.array([])
 
 excitation_complete = False
 stop_condition_reached = False
+timestep_duration = 0
 
 # Post Processing Variables
 e_field_reflected_fft = np.array([])
@@ -215,7 +217,7 @@ def ricker_wavelet(qtime, location, delay, fc=40e9):
     
     # Ricker wavelet formula
     term = (np.pi * fc * t) ** 2
-    return (1 - 2 * term) * np.exp(-term)
+    return 50 * (1 - 2 * term) * np.exp(-term)
 
 # The following not really used but can be if you need
 def gaussian_pulse(qtime, location, delay, fc=20e9): 
@@ -343,20 +345,24 @@ def save_e_field_snapshot(index=None):
 ################################################################################
 # FDTD Energy Tracking
 def update_total_energy():
-    global total_energy, stop_condition_reached
+    global total_energy, max_energy_reached, stop_condition_reached, excitation_complete, timestep_duration
+    total_energy = 0.0 # reset energy
     for i in range(grid_size):
         total_energy += 0.5 * e0 * er[i] * (e_field[i] ** 2)
+    if total_energy >= max_energy_reached:
+        max_energy_reached = total_energy
+    elif (total_energy/max_energy_reached <= threshold_energy):
+        stop_condition_reached = True
+        timestep_duration = q_timestep
+
+    if total_energy < max_energy_reached and not excitation_complete:
+        print(f'Excitation complate at timestep {q_timestep} ({q_timestep * const_dt} seconds)')
+        excitation_complete = True
     return
 
-def check_total_energy():
-    global stop_condition_reached
-    print(f'Total energy at time step {q_timestep}:\t {10 * np.log10(total_energy)} dB')
-    if (total_energy < threshold_energy) and excitation_complete:
-        stop_condition_reached = True
-    return
 
 ################################################################################
-def run_fdtd_simulation(materials, layer_thicknesses, source_loc, max_time_steps, f_max=30e9,threshold=1e-3):
+def run_fdtd_simulation(materials, layer_thicknesses, source_loc, max_time_steps, f_max=30e9):
     e_field_log_index_name = 'test'
     init_scenario(layer_thicknesses, materials, source_loc, f_max, ppw_setting=10)
     
@@ -371,8 +377,6 @@ def run_fdtd_simulation(materials, layer_thicknesses, source_loc, max_time_steps
     total_energy = 0.0
     for t in range(max_time_steps):
         q_timestep = t
-        # total_energy = 0.0
-        # print(f'Timestep: {q_timestep}, Total_energy: {total_energy}, E-Field at Source: {e_field[source_location]}')
         abc_update('h')
         update_magnetic_fields()
         tfsf_update('h')
@@ -390,51 +394,73 @@ def run_fdtd_simulation(materials, layer_thicknesses, source_loc, max_time_steps
             else:
                 e_field_source[t] = e_field[source_location+1]
 
-        # update_total_energy()
+        update_total_energy()
 
-        # # timing to check for when to print energy!
-        # end_time = datetime.now()
-        # timediff = end_time - last_print_time
-        # if int((timediff.total_seconds() + 1) % 3) == 0:
-        #     check_total_energy()
-        #     print(timediff.total_seconds())
-        #     last_print_time = datetime.now()
+        # timing to check for when to print energy!
+        end_time = datetime.now()
+        timediff = end_time - last_print_time
+        if int((timediff.total_seconds() + 1) % 3) == 0:
+            print(f'Timestep: {q_timestep}\t|\tTotal energy decay: {max_energy_reached - total_energy}\t|\tE-Field at Source: {e_field[source_location]}')
+            last_print_time = datetime.now()
 
-        # if stop_condition_reached:
-        #     print(f'Stop condition reached at time step {q_timestep}.')
-        #     break
+        if stop_condition_reached:
+            print(f'Energy decay reached {10*np.log10(threshold_energy)} dB at time step {q_timestep} ({q_timestep * const_dt} seconds). Stopping...')
+            break
     print("FDTD Simulation Complete.")
     # save_e_field_snapshot(e_field_log_index_name)
     return e_field_source, e_field_monitor_data
 
 
 # calculate S11 in dB and associated frequencies
-def S11_dB(e_field_source, e_field_monitor_data):
+def fft_wrapper(time_data, timestep):
+    N = len(time_data)
+    if len(time_data) <= 0:
+        print(f"ERROR: time data fed to fft_wrapper is empty. Length: {N}")
+        return None, None
+       
+    complex_spectrum = np.fft.fft(time_data) / N
+    frequencies = np.fft.fftfreq(N, d=timestep)[:N//2]
+    return frequencies, complex_spectrum
+
+def S11_mag(e_field_source, e_field_monitor_data):
     global e_field_reflected_fft, e_field_source_fft, frequencies, const_dt
-
-    if (len(e_field_monitor_data) != len(e_field_source)):
-        print("S11 cannot be calculated due to differing input array lengths")
-
+    
     N = len(e_field_monitor_data)    
-    e_field_reflected_fft = np.fft.fft(e_field_monitor_data) / N
-    e_field_source_fft = np.fft.fft(e_field_source) / N
-    frequencies = np.fft.fftfreq(N, d=const_dt)[:N//2]
+    if (len(e_field_monitor_data) != len(e_field_source)):
+        print(f"ERROR: S11 cannot be calculated due to differing input array lengths. Monitor data length: {N}")
+        return None, None
+
+    frequencies, e_field_reflected_fft = fft_wrapper(e_field_monitor_data, timestep=const_dt)
+    _, e_field_source_fft = fft_wrapper(e_field_source, timestep=const_dt)
 
     R = np.abs(e_field_reflected_fft[0:N//2] / e_field_source_fft[0:N//2])
+    return frequencies, R
+
+def S11_dB(e_field_source, e_field_monitor_data):
+    frequencies, R = S11_mag(e_field_source, e_field_monitor_data)
     return frequencies, 20*np.log10(R)
+
 
 ################################################################################
 if __name__ == "__main__":
     # Setups
-    materials = ['Air1', 'Skin', 'Fat', 'Muscle']
-    layer_thicknesses = [0.10, 0.01, 0.003, 0.005] # in meters 
+    # Hardcoded library of materials
+    # test_stackup_materials = ['Air1', 'Skin', 'Fat', 'Muscle']
+    upper_head_materials = ['Air1', 'Skin', 'Connective Tissue', 'Skull', 'Dura', 'Brain (Grey Matter)', 'Brain (White Matter)', 'PEC']
+    
+    # Hardcoded library of thicknesses
+    # test_stackup_thicknesses = [0.100, 0.010, 0.003, 0.005]
+    upper_head_thicknesses = [0.1, 0.0025, 0.0025, 0.005, 0.01, 0.03, 0.05, 0.001]
 
-    max_time_steps = 20000
-    source_loc = 0.01  # 0 mm from the left boundary
+    materials = upper_head_materials
+    thicknesses = upper_head_thicknesses
+
+    max_time_steps = 30000
+    source_loc = 0.005  # 0 mm from the left boundary
     
     set_e_field_monitor(location = 0.0, max_time_steps = max_time_steps)
 
-    e_source, e_reflected = run_fdtd_simulation(materials, layer_thicknesses, source_loc, max_time_steps)
+    e_source, e_reflected = run_fdtd_simulation(materials, thicknesses, source_loc, max_time_steps, f_max=60e9)
 
     ################################################################################
     # TODO: turn this post-processing into a function to call from other files
@@ -479,12 +505,12 @@ if __name__ == "__main__":
     
     ani = FuncAnimation(fig, update, frames=ts, interval=10, repeat=True)
     # Save as MP4 video
-    print("Saving MP4...")
-    ani.save('fdtd_animation.mp4', writer='ffmpeg', fps=30, dpi=150)
+    # print("Saving MP4...")
+    # ani.save('fdtd_animation.mp4', writer='ffmpeg', fps=30, dpi=150)
 
-    # Save as GIF
-    print("Saving GIF...")
-    ani.save('fdtd_animation.gif', writer='pillow', fps=30, dpi=100)
+    # # Save as GIF
+    # print("Saving GIF...")
+    # ani.save('fdtd_animation.gif', writer='pillow', fps=30, dpi=100)
 
     print("Animation files saved!")
     plt.show()

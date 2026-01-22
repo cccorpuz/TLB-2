@@ -6,6 +6,7 @@
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
+from scipy import signal
 
 # from fdtd import *
 
@@ -165,14 +166,15 @@ def test_s11_from_1D_layers(materials, thicknesses):
     plt.grid()
     plt.show()
 
-def compare_s11_to_files(materials, thicknesses, filepaths, fdtd_timesteps=20000, fdtd_source_location=0.01, include_external_files=False):
+def compare_s11_to_files(materials, thicknesses, filepaths, fdtd_timesteps=30000, fdtd_source_location=0.005, include_external_files=False):
     # FDTD Section
     # Default max timesteps = 5000
     # Default source location is 10mm
     import fdtd
-    fdtd.set_e_field_monitor(fdtd_source_location, fdtd_timesteps)
-    e_source, e_reflected = fdtd.run_fdtd_simulation(materials, thicknesses, fdtd_source_location, fdtd_timesteps)
+    fdtd.set_e_field_monitor(0.0, fdtd_timesteps)
+    e_source, e_reflected = fdtd.run_fdtd_simulation(materials, thicknesses, fdtd_source_location, fdtd_timesteps, f_max=30e9)
     f_fdtd, s11_fdtd_dB =  fdtd.S11_dB(e_source, e_reflected)
+    plt.figure() # Beginning of frequency domain plot
     plt.plot(f_fdtd, s11_fdtd_dB, label='1D FDTD S11')
 
     # Theoretical Section
@@ -189,29 +191,62 @@ def compare_s11_to_files(materials, thicknesses, filepaths, fdtd_timesteps=20000
     plt.xlim(1e9, 18e9)
     plt.ylim(-60, 0)
     plt.xticks(np.arange(1e9, 19e9, 1e9), labels=[str(int(x/1e9)) for x in np.arange(1e9, 19e9, 1e9)])
-    plt.xlabel('Frequency (Hz)')
+    plt.xlabel('Frequency (GHz)')
     plt.ylabel('S11 (dB)')
     plt.legend()
     plt.grid()
     plt.show()
+
+    # # FDTD time and frequency vs magnitude plot (NOT WORKING YET)
+    # f, t, Sxx = signal.spectrogram(e_reflected, fs=1/fdtd.const_dt)
+    # fig = plt.figure()
+    # ax = fig.add_subplot(111, projection='3d')
+
+    # T, F = np.meshgrid(t,f)
+    # ax.plot_surface(T, F, 10*np.log10(np.abs(Sxx+1e-30)), cmap='viridis', edgecolor='none')
+    # plt.ylim(1e9, 18e9)
+    # plt.xlim(0, 2e-9)
+    # ax.set_xlabel('Time (s)')
+    # ax.set_ylabel('Frequency (Hz)')
+    # ax.set_zlabel('Intensity (dB)')
+    # # plt.plot(e_reflected[:fdtd.timestep_duration])
+    # plt.show()
     
 if __name__ == "__main__":
-    thicknesses = [0.10, 0.01, 0.003, 0.005] # in meters
-    materials = ['Air1', 'Skin', 'Fat', 'Muscle']
+    # Hardcoded library of materials
+    test_stackup_materials = ['Air1', 'Air2', 'Air4', 'Air1']
+    # upper_head_materials = ['Air1', 'Skin', 'Connective Tissue', 'Skull', 'Dura', 'Brain (Grey Matter)', 'Brain (White Matter)', 'PEC']
+    
+    # Hardcoded library of thicknesses
+    test_stackup_thicknesses = [0.100, 0.010, 0.003, 0.005]
+    # upper_head_thicknesses = [0.1, 0.0025, 0.0025, 0.005, 0.01, 0.03, 0.05, 0.001]
+
+    materials = test_stackup_materials
+    thicknesses = test_stackup_thicknesses
+
+    # materials = upper_head_materials
+    # thicknesses = upper_head_thicknesses
     base_filepath = 'C:\\Users\\corpu\\OneDrive - University of Kansas\\Applied EM Lab Work\\I2S Remote Work\\sim_eval_s11\\'
-    filepaths = ['1-1-4-1_hfss.csv',
+    filepaths = [
+                # '1-1-4-1_hfss.csv',
+                # '1-2-4-1_hfss.csv',
+                # '1-2-4S0p4-1_hfss.csv',
                 #  '1-1-4-1_xf.csv',
                 # '1-1-4-1_100mmx100mm_xf.csv',
                 # '1-1-4-1_100mmx100mm_ABSxy_xf.csv',
-                '1-1-4-1_500mmx500mm_ABSxy_xf.csv',
+                # '1-1-4-1_500mmx500mm_ABSxy_xf.csv',
                 # '1-1-4-1_2mmx150mm_xf.csv',
                 # '1-1-4-1_10mmx150mm_xf.csv',
                 # '1-1-4-1_10mmx150mm_20x160mmwg_xf.csv',
                 # '1-1-4-1_10mmx150mm_20x30mmwg_swapbc_xf.csv',
                 # '1-1-4-1_10mmx150mm_150x20mmwg_swapbc_xf.csv',
                 # '1-1-4-1_150mmx150mm_xf.csv',
+                # '1-2-4-1_30mmx30mm_xf.csv',
+                # '1-2-4-1_1x150mm_xf.csv',
+                # '1-2-4S0p4-1_xf.csv',
+                # '1-skin-fat-muscle_xf.csv',
                  ]
     filepaths = [base_filepath + fp for fp in filepaths]
     # test_tissue_model('Blood')
     # test_s11_from_1D_layers(materials, thicknesses)
-    compare_s11_to_files(materials, thicknesses, filepaths)
+    compare_s11_to_files(materials, thicknesses, filepaths, include_external_files=False)
