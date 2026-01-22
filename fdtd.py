@@ -217,7 +217,7 @@ def ricker_wavelet(qtime, location, delay, fc=40e9):
     
     # Ricker wavelet formula
     term = (np.pi * fc * t) ** 2
-    return 50 * (1 - 2 * term) * np.exp(-term)
+    return 5000 * (1 - 2 * term) * np.exp(-term)
 
 # The following not really used but can be if you need
 def gaussian_pulse(qtime, location, delay, fc=20e9): 

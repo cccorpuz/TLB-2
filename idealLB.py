@@ -3,6 +3,7 @@
 # University of Kansas
 # Created 11/16
 
+from matplotlib.animation import FuncAnimation
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
@@ -174,28 +175,61 @@ def compare_s11_to_files(materials, thicknesses, filepaths, fdtd_timesteps=30000
     fdtd.set_e_field_monitor(0.0, fdtd_timesteps)
     e_source, e_reflected = fdtd.run_fdtd_simulation(materials, thicknesses, fdtd_source_location, fdtd_timesteps, f_max=30e9)
     f_fdtd, s11_fdtd_dB =  fdtd.S11_dB(e_source, e_reflected)
-    plt.figure() # Beginning of frequency domain plot
-    plt.plot(f_fdtd, s11_fdtd_dB, label='1D FDTD S11')
+    fig, (ax1, ax2) = plt.subplots(2,1, figsize=(10,8)) # Beginning of frequency domain plot
+    plt.subplots_adjust(hspace=0.5)
+    ax1.plot(f_fdtd, s11_fdtd_dB, label='1D FDTD S11')
 
     # Theoretical Section
     f_start = 1e9
-    f_stop = 18e9
-    num_points = 1701
+    f_stop = 20e9
+    num_points = 1901
     frequencies = np.linspace(f_start, f_stop, num_points)
     s11 = s11_from_1D_layers(materials, thicknesses, f_start, f_stop, num_points)
-    plt.plot(frequencies, 20 * np.log10(np.abs(s11)), label='Theoretical S11')
+    ax1.plot(frequencies, 20 * np.log10(np.abs(s11)), label='Theoretical S11')
     if include_external_files:
         for filepath in filepaths:
             s11_file = read_s11_file(filepath)
-            plt.plot(s11_file[:,0]*1e9, s11_file[:,1], label=f'S11 from {filepath.split("_")[-1].replace(".csv","").upper()}')
-    plt.xlim(1e9, 18e9)
-    plt.ylim(-60, 0)
-    plt.xticks(np.arange(1e9, 19e9, 1e9), labels=[str(int(x/1e9)) for x in np.arange(1e9, 19e9, 1e9)])
-    plt.xlabel('Frequency (GHz)')
-    plt.ylabel('S11 (dB)')
-    plt.legend()
-    plt.grid()
+            ax1.plot(s11_file[:,0]*1e9, s11_file[:,1], label=f'S11 from {filepath.split("_")[-1].replace(".csv","").upper()}')
+    ax1.set_xlim(1e9, 20e9)
+    ax1.set_ylim(np.floor(np.min(s11_fdtd_dB[:fdtd.timestep_duration])/5)*5, 0)
+    ax1.set_xticks(np.arange(1e9, 21e9, 1e9), labels=[str(int(x/1e9)) for x in np.arange(1e9, 21e9, 1e9)])
+    ax1.set_xlabel('Frequency (GHz)')
+    ax1.set_ylabel('S11 (dB)')
+    ax1.legend()
+    ax1.grid(True)
+    ax1.set_title('S11 Comparisons')
+
+    # Time Domain Animation
+    xs = np.linspace(0,fdtd.grid_size-1,fdtd.grid_size) # column, grid location
+    ts = np.linspace(0,fdtd.timestep_duration-1,fdtd.timestep_duration).astype(int) # row, time step
+
+    e_field_snapshots = np.loadtxt(f'e_field_logtest.csv', delimiter=',')[:fdtd.timestep_duration,:]
+    e_field_snapshots = e_field_snapshots[::5,:]
+    ax2.set(xlim=[0, np.size(e_field_snapshots[0])], ylim=[np.min(e_field_snapshots), np.max(e_field_snapshots)], xlabel='Grid Location', ylabel='E-Field Intensity')
+    ax2.grid()
+
+    boundary_positions = []
+    for i in range(1, len(fdtd.normalized_layer_sizes)):  # Skip first (always 0)
+        boundary_pos = int(np.sum(fdtd.normalized_layer_sizes[:i+1]))
+        boundary_positions.append(boundary_pos)
+        ax2.axvline(x=boundary_pos, color='r', linestyle='--', alpha=0.5, 
+                label=f'Boundary {i}' if i == 1 else '')
+    line, = ax2.plot([], [], "r-")
+    def update(t):
+        line.set_data(xs, e_field_snapshots[t])
+    
+    ani = FuncAnimation(fig, update, frames=ts, interval=1, repeat=True)
     plt.show()
+
+    # Save as MP4 video
+    # print("Saving MP4...")
+    # ani.save('fdtd_animation.mp4', writer='ffmpeg', fps=30, dpi=150)
+
+    # Save as GIF
+    # print("Saving GIF...")
+    # ani.save('fdtd_animation.gif', writer='pillow', fps=30, dpi=100)
+
+    # print("Animation files saved!")
 
     # # FDTD time and frequency vs magnitude plot (NOT WORKING YET)
     # f, t, Sxx = signal.spectrogram(e_reflected, fs=1/fdtd.const_dt)
@@ -214,18 +248,18 @@ def compare_s11_to_files(materials, thicknesses, filepaths, fdtd_timesteps=30000
     
 if __name__ == "__main__":
     # Hardcoded library of materials
-    test_stackup_materials = ['Air1', 'Air2', 'Air4', 'Air1']
-    # upper_head_materials = ['Air1', 'Skin', 'Connective Tissue', 'Skull', 'Dura', 'Brain (Grey Matter)', 'Brain (White Matter)', 'PEC']
+    # test_stackup_materials = ['Air1', 'Air2', 'Air4', 'Air1']
+    upper_head_materials = ['Air1', 'Skin', 'Connective Tissue', 'Skull', 'Dura', 'Brain (Grey Matter)', 'Brain (White Matter)', 'PEC']
     
     # Hardcoded library of thicknesses
-    test_stackup_thicknesses = [0.100, 0.010, 0.003, 0.005]
-    # upper_head_thicknesses = [0.1, 0.0025, 0.0025, 0.005, 0.01, 0.03, 0.05, 0.001]
+    # test_stackup_thicknesses = [0.100, 0.010, 0.003, 0.005]
+    upper_head_thicknesses = [0.1, 0.0025, 0.0025, 0.005, 0.01, 0.03, 0.05, 0.001]
 
-    materials = test_stackup_materials
-    thicknesses = test_stackup_thicknesses
+    # materials = test_stackup_materials
+    # thicknesses = test_stackup_thicknesses
 
-    # materials = upper_head_materials
-    # thicknesses = upper_head_thicknesses
+    materials = upper_head_materials
+    thicknesses = upper_head_thicknesses
     base_filepath = 'C:\\Users\\corpu\\OneDrive - University of Kansas\\Applied EM Lab Work\\I2S Remote Work\\sim_eval_s11\\'
     filepaths = [
                 # '1-1-4-1_hfss.csv',
