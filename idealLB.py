@@ -171,7 +171,7 @@ def compare_s11_to_files(materials, thicknesses, filepaths, fdtd_timesteps=30000
     # FDTD Section
     # Default max timesteps = 5000
     # Default source location is 10mm
-    import fdtd
+    import fdtd_1D as fdtd
     fdtd.set_e_field_monitor(0.0, fdtd_timesteps)
     e_source, e_reflected = fdtd.run_fdtd_simulation(materials, thicknesses, fdtd_source_location, fdtd_timesteps, f_max=30e9)
     f_fdtd, s11_fdtd_dB =  fdtd.S11_dB(e_source, e_reflected)
@@ -248,18 +248,18 @@ def compare_s11_to_files(materials, thicknesses, filepaths, fdtd_timesteps=30000
     
 if __name__ == "__main__":
     # Hardcoded library of materials
-    # test_stackup_materials = ['Air1', 'Air2', 'Air4', 'Air1']
-    upper_head_materials = ['Air1', 'Skin', 'Connective Tissue', 'Skull', 'Dura', 'Brain (Grey Matter)', 'Brain (White Matter)', 'PEC']
+    test_stackup_materials = ['Air1', 'Air2', 'Air4', 'Air1']
+    # upper_head_materials = ['Air1', 'Skin', 'Connective Tissue', 'Skull', 'Dura', 'Brain (Grey Matter)', 'Brain (White Matter)', 'PEC']
     
     # Hardcoded library of thicknesses
-    # test_stackup_thicknesses = [0.100, 0.010, 0.003, 0.005]
-    upper_head_thicknesses = [0.1, 0.0025, 0.0025, 0.005, 0.01, 0.03, 0.05, 0.001]
+    test_stackup_thicknesses = [0.100, 0.010, 0.003, 0.005]
+    # upper_head_thicknesses = [0.1, 0.0025, 0.0025, 0.005, 0.01, 0.03, 0.05, 0.001]
 
-    # materials = test_stackup_materials
-    # thicknesses = test_stackup_thicknesses
+    materials = test_stackup_materials
+    thicknesses = test_stackup_thicknesses
 
-    materials = upper_head_materials
-    thicknesses = upper_head_thicknesses
+    # materials = upper_head_materials
+    # thicknesses = upper_head_thicknesses
     base_filepath = 'C:\\Users\\corpu\\OneDrive - University of Kansas\\Applied EM Lab Work\\I2S Remote Work\\sim_eval_s11\\'
     filepaths = [
                 # '1-1-4-1_hfss.csv',
