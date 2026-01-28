@@ -1,3 +1,4 @@
+import nibabel as nib
 import cadquery as cq
 import matplotlib.pyplot as plt
 import numpy as np
@@ -25,6 +26,15 @@ class material:
         tau = tissue_data_raw[3],
         cond = tissue_data_raw[14]
         return e_inf, e_d, tau, cond
+    
+class nii_model:
+    def __init__(self, input_file):
+        self.image = nib.load(input_file)
+        self.image_data = np.int8(self.image.get_fdata())
+
+        print(f'Using NIfTI model from file: {input_file}')
+        print(f'Image shape: {self.image.shape}')
+
 
 class voxelized_model:
     def __init__(self, input_file, resolution, material_name):
@@ -37,8 +47,6 @@ class voxelized_model:
     def load(self, input_file):
         model = cq.importers.importStep(input_file)
         shape = model.val()
-        
-        # get bounding box of shape
         bb = shape.BoundingBox()
 
         # grid creation
@@ -46,6 +54,7 @@ class voxelized_model:
         x = np.arange(bb.xmin, bb.xmax, self.resolution)
         y = np.arange(bb.ymin, bb.ymax, self.resolution)
         z = np.arange(bb.zmin, bb.zmax, self.resolution)
+        print(f'Voxel grid dimensions: x: {len(x)}, y: {len(y)}, z: {len(z)}')
 
         nx, ny, nz = len(x), len(y), len(z)
         model_er = np.ones((nx,ny,nz)) # initialize to free space permittivity (e_inf)
@@ -54,7 +63,9 @@ class voxelized_model:
         model_cond = np.zeros((nx,ny,nz)) # initialize to free space (no conductivity)
 
         # TODO: optimize nested loops or distribute the work because of the O(n^3) complexity
+        # TODO: ALSO look into openvdb from dreamworks for voxelization?
         for i, xi in enumerate(x):
+            print(i/len(x))
             for j, yj in enumerate(y):
                 for k, zk in enumerate(z):
                     point = cq.Vector(xi, yj, zk)
@@ -75,8 +86,11 @@ class voxelized_model:
 
 
 if __name__ == "__main__":
-    head_model_filename = "C:\TLB-2\male_head_2mm - human_body_average_composite.step"
-    head_model = voxelized_model(head_model_filename, resolution = 1, material_name = "Muscle")
+    # head_model_filename = "C:\TLB-2\male_head_2mm - human_body_average_composite.step"
+    # head_model = voxelized_model(head_model_filename, resolution = 10, material_name = "Muscle")
 
-    plt.plot(head_model.model_er)
-    plt.show()
+    # plt.plot(head_model.model_er)
+    # plt.show()
+
+    mri_image_filename = "C:\TLB-2\models\MIDA_v1.nii" # 480x480x350 voxel image, 0.5mm spacing
+    mri_model = nii_model(mri_image_filename)
