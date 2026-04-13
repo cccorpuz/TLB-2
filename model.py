@@ -35,6 +35,9 @@ class nii_model:
         print(f'Using NIfTI model from file: {input_file}')
         print(f'Image shape: {self.image.shape}')
 
+        plt.plot(self.image_data[240,240,:])
+        plt.show()
+
 
 class voxelized_model:
     def __init__(self, input_file, resolution, material_name):
