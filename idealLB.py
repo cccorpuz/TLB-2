@@ -88,16 +88,30 @@ def recursive_ref_coeff(boundary_index, thicknesses, gammas, r):
         # TODO: at some point, maybe make sure that you don't need to have infinite reflections... last tested, only a few tenths of dB difference so....
         return r_total
 
-# TODO: turn this into a recursive function so it can handle any number of layers atumoatically
+# TODO: turn this into a recursive function so it can handle any number of layers automatically
 def compute_g_truncated(r, gamma, thicknesses):
     d = np.array(thicknesses)
-    g1 = r[0] * np.exp(-2 * gamma[0] * d[0])
+    n = len(d) - 1
+    g_arr = np.zeros(r.shape[1], dtype=complex)  # Changed to 1D array with size num_freq
+    prev = np.ones_like(r[0])  # Initialize prev as array of ones
+    for i in range(n):
+        d_slice = d[:i+1, np.newaxis]  # Expand d to (i+1, 1) for broadcasting
+        a = (gamma[:i+1] * d_slice).sum(axis=0)  # Sum over axis 0
+        print(a)
+        g_arr += r[i] * prev * np.exp(-2 * a)
+        prev *= (1 - r[i]**2)
 
-    g2 = r[1] * (1 - r[0]**2) * np.exp(-2 * (gamma[0]*d[0] + gamma[1]*d[1]))
+    g = g_arr  # No need for np.sum, as g_arr is already 1D
 
-    g3 = r[2] * (1 - r[0]**2) * (1 - r[1]**2) * np.exp(-2 * (gamma[0]*d[0] + gamma[1]*d[1] + gamma[2]*d[2]))
+    # g1 = r[0] * np.exp(-2 * gamma[0] * d[0])
 
-    g = g1 + g2 + g3
+    # g2 = r[1] * (1 - r[0]**2) * np.exp(-2 * (gamma[0]*d[0] + gamma[1]*d[1]))
+
+    # g3 = r[2] * (1 - r[0]**2) * (1 - r[1]**2) * np.exp(-2 * (gamma[0]*d[0] + gamma[1]*d[1] + gamma[2]*d[2]))
+
+    # g4 = r[3] * (1 - r[0]**2) * (1 - r[1]**2) * (1 - r[2]**2) * np.exp(-2 * (gamma[0]*d[0] + gamma[1]*d[1] + gamma[2]*d[2] + gamma[3]*d[3]))
+
+    # g = g1 + g2 + g3 + g4
     return g
 
 # Input list of materials and thicknesses, frequency range
@@ -190,6 +204,13 @@ def compare_s11_to_files(materials, thicknesses, filepaths, fdtd_timesteps=30000
         for filepath in filepaths:
             s11_file = read_s11_file(filepath)
             ax1.plot(s11_file[:,0]*1e9, s11_file[:,1], label=f'S11 from {filepath.split("_")[-1].replace(".csv","").upper()}')
+    
+    import data.xf_tfsf_parsing as xfp
+    base = "C:\\TLB-2\\data\\baseline_nearfield_finer_broadband_04122026.csv"
+    nf = "C:\\TLB-2\\data\\2-3-4-5_nearfield_finer_broadband_04122026.csv"
+    freqs, s11_xf = xfp.xf_tfsf_parsing_s11(base, nf)
+    ax1.plot(freqs, s11_xf, label='S11 from XF TFSF')
+    
     ax1.set_xlim(1e9, 20e9)
     ax1.set_ylim(np.floor(np.min(s11_fdtd_dB[:fdtd.timestep_duration])/5)*5, 0)
     ax1.set_xticks(np.arange(1e9, 21e9, 1e9), labels=[str(int(x/1e9)) for x in np.arange(1e9, 21e9, 1e9)])
@@ -248,11 +269,11 @@ def compare_s11_to_files(materials, thicknesses, filepaths, fdtd_timesteps=30000
     
 if __name__ == "__main__":
     # Hardcoded library of materials
-    test_stackup_materials = ['Air1', 'Air2', 'Air4', 'Air1']
+    test_stackup_materials = ['Air1', 'Air2', 'Air3', 'Air4', 'Air5', 'Air1']
     # upper_head_materials = ['Air1', 'Skin', 'Connective Tissue', 'Skull', 'Dura', 'Brain (Grey Matter)', 'Brain (White Matter)', 'PEC']
     
     # Hardcoded library of thicknesses
-    test_stackup_thicknesses = [0.100, 0.010, 0.003, 0.005]
+    test_stackup_thicknesses = [0.100, 0.003, 0.005, 0.002, 0.005, 0.001]
     # upper_head_thicknesses = [0.1, 0.0025, 0.0025, 0.005, 0.01, 0.03, 0.05, 0.001]
 
     materials = test_stackup_materials

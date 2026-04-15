@@ -32,20 +32,22 @@ e_ds = np.array([])
 taus = np.array([])
 conductivities = np.array([])
 
-# FDTD parameters
-Sc = 1.0  # Courant number
-dx = 1  # initial spatial step size (m)\
-const_dt = 0
-actual_dt = 0  
-ppw = 20 # points per wavelength
-grid_size = 0
-max_time = 100000
-q_timestep = 0 # current time step
-
 er = np.array([])
 ed = np.array([])
 tau = np.array([])
 sigma = np.array([])
+
+# FDTD parameters
+Sc = 1.0  # Courant number
+dx = 1  # initial spatial step size (m)
+dy = 1 # initial spatial step size (m)
+const_dt = 0
+actual_dt = 0  
+ppw = 20 # points per wavelength
+grid_size_x = 0
+grid_size_y = 0
+max_time = 100000
+q_timestep = 0 # current time step
 
 source_location = 0.0001 # in meters, to be normalized later
 source_duration = 0.0
@@ -57,7 +59,8 @@ e_field_source = np.array([])
 
 e_field = np.array([])
 e_field_prev = np.array([])
-h_field = np.array([])
+hx_field = np.array([])
+hy_field = np.array([])
 j_pol = np.array([])
 
 Cje = np.array([])
@@ -369,7 +372,7 @@ def run_fdtd_simulation(materials, layer_thicknesses, source_loc, max_time_steps
     # delete existing file if exists
     if os.path.exists(f'e_field_log{e_field_log_index_name}.csv'):
         os.remove(f'e_field_log{e_field_log_index_name}.csv')
-        print(f'Existing file f\'e_field_log{e_field_log_index_name}.csv\' found and deleted.')
+        print(f'Existing file {f'e_field_log{e_field_log_index_name}.csv'} found and deleted.')
     
     global q_timestep, total_energy, e_field_monitor_data, e_field_source
     end_time = datetime.now()
@@ -458,59 +461,3 @@ if __name__ == "__main__":
     max_time_steps = 30000
     source_loc = 0.005  # 0 mm from the left boundary
     
-    set_e_field_monitor(location = 0.0, max_time_steps = max_time_steps)
-
-    e_source, e_reflected = run_fdtd_simulation(materials, thicknesses, source_loc, max_time_steps, f_max=60e9)
-
-    ################################################################################
-    # TODO: turn this post-processing into a function to call from other files
-    # Post-processing data
-    f, s11_dB =  S11_dB(e_source, e_reflected)
-    plt.plot(f, s11_dB)
-
-    # debug plots
-    # plt.plot(f,20*np.log10(np.abs(e_field_source_dft[0:max_time_steps//2])))
-    # plt.plot(f,20*np.log10(np.abs(e_field_reflected_dft[0:max_time_steps//2])))
-    # plt.plot(e_field_monitor_data)
-    # plt.plot(e_field_source)
-
-    # set plot boundaries
-    plt.xlim(1e9, 20e9)
-    plt.ylim(-60, 0)
-    plt.xlabel('Frequency (Hz)')
-    plt.ylabel('S11 (dB)')
-    plt.xticks(np.arange(1e9, 21e9, 1e9), labels=[str(int(x/1e9)) for x in np.arange(1e9, 21e9, 1e9)])
-    plt.grid()
-    plt.show()
-    
-    ################################################################################
-    # Time Domain Animation
-    xs = np.linspace(0,grid_size-1,grid_size) # column, grid location
-    ts = np.linspace(0,q_timestep-1,q_timestep).astype(int) # row, time step
-
-    e_field_snapshots = np.loadtxt(f'e_field_logtest.csv', delimiter=',')
-    fig, ax = plt.subplots()
-    ax.set(xlim=[0, np.size(e_field_snapshots[0])], ylim=[-1, 2], xlabel='Grid Location', ylabel='E-Field Intensity')
-    ax.grid()
-
-    boundary_positions = []
-    for i in range(1, len(normalized_layer_sizes)):  # Skip first (always 0)
-        boundary_pos = int(np.sum(normalized_layer_sizes[:i+1]))
-        boundary_positions.append(boundary_pos)
-        ax.axvline(x=boundary_pos, color='r', linestyle='--', alpha=0.5, 
-                label=f'Boundary {i}' if i == 1 else '')
-    line, = ax.plot([], [], "r-")
-    def update(t):
-        line.set_data(xs, e_field_snapshots[t])
-    
-    ani = FuncAnimation(fig, update, frames=ts, interval=10, repeat=True)
-    # Save as MP4 video
-    # print("Saving MP4...")
-    # ani.save('fdtd_animation.mp4', writer='ffmpeg', fps=30, dpi=150)
-
-    # # Save as GIF
-    # print("Saving GIF...")
-    # ani.save('fdtd_animation.gif', writer='pillow', fps=30, dpi=100)
-
-    print("Animation files saved!")
-    plt.show()

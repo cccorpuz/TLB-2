@@ -369,7 +369,7 @@ def run_fdtd_simulation(materials, layer_thicknesses, source_loc, max_time_steps
     # delete existing file if exists
     if os.path.exists(f'e_field_log{e_field_log_index_name}.csv'):
         os.remove(f'e_field_log{e_field_log_index_name}.csv')
-        print(f'Existing file f\'e_field_log{e_field_log_index_name}.csv\' found and deleted.')
+        print(f'Existing file {f'e_field_log{e_field_log_index_name}.csv'} found and deleted.')
     
     global q_timestep, total_energy, e_field_monitor_data, e_field_source
     end_time = datetime.now()

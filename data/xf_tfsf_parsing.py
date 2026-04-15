@@ -48,10 +48,9 @@ class XF_nearfield:
         self.ez[:min_n] -= other.ez[:min_n]
         self.e_t = np.sqrt(self.ex**2 + self.ey**2 + self.ez**2)
 
-
-if __name__ == "__main__":
-    base = XF_nearfield("C:\\TLB-2\\data\\baseline_nearfield_finer_broadband_04122026.csv")
-    nf = XF_nearfield("C:\\TLB-2\\data\\2-3-4-5_nearfield_finer_broadband_04122026.csv")
+def xf_tfsf_parsing_s11(baseline, reflected):
+    base = XF_nearfield(baseline)
+    nf = XF_nearfield(reflected)
 
     # Subtract incident field to get scattered field
     nf.diff(base)
@@ -71,11 +70,10 @@ if __name__ == "__main__":
     # Calculate the ratio (safe, because lengths and bins now match perfectly)
     ratio_dB = 20 * np.log10(np.abs(nf.e_f) / np.abs(base.e_f))
 
-    plt.plot(base.frequencies, ratio_dB)
-    
-    plt.xlim(6e9, 14e9) 
-    plt.xlabel("Frequency (Hz)")
-    plt.ylabel("Ratio of Scattered to Incident Field (dB)")
-    plt.title("Ratio of Scattered to Incident Field vs Frequency")
-    plt.grid(True)
-    plt.show()
+    return base.frequencies, ratio_dB
+
+if __name__ == "__main__":
+    base = "C:\\TLB-2\\data\\baseline_nearfield_finer_broadband_04122026.csv"
+    nf = "C:\\TLB-2\\data\\2-3-4-5_nearfield_finer_broadband_04122026.csv"
+    xf_tfsf_parsing_s11(base, nf)
+
