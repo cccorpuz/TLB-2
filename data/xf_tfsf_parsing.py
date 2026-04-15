@@ -72,8 +72,59 @@ def xf_tfsf_parsing_s11(baseline, reflected):
 
     return base.frequencies, ratio_dB
 
-if __name__ == "__main__":
+def xf_tfsf_parsing_s21(port1, port2):
+    p1 = XF_nearfield(port1)
+    p2 = XF_nearfield(port2)
+
+    # Now calculate FFTs safely
+    p1.nearfield_freq()
+    p2.nearfield_freq()
+
+    ratio_dB = 20 * np.log10(np.abs(p2.e_f) / np.abs(p1.e_f))
+
+    return p1.frequencies, ratio_dB
+
+###### TESTS ######
+def test_s11(plot = False):
     base = "C:\\TLB-2\\data\\baseline_nearfield_finer_broadband_04122026.csv"
     nf = "C:\\TLB-2\\data\\2-3-4-5_nearfield_finer_broadband_04122026.csv"
-    xf_tfsf_parsing_s11(base, nf)
+    f, s11 = xf_tfsf_parsing_s11(base, nf)
+
+    if plot:
+        plt.plot(f, s11)
+        plt.xlim([0e9, 20e9])
+        plt.xlabel("Frequency (Hz)")
+        plt.ylabel("Magnitude (dB)")
+        plt.title("S11 Plot")
+        plt.show()
+
+    return f, s11
+
+def test_s21(plot = False):
+    p1 = "C:\\TLB-2\\data\\2-3-4-5_inside_04142026.csv"
+    p2 = "C:\\TLB-2\\data\\2-3-4-5_outside_04142026.csv"
+    f, s21 = xf_tfsf_parsing_s21(p1, p2)
+
+    if plot:
+        plt.plot(f, s21)
+        plt.xlim([0e9, 20e9])
+        plt.xlabel("Frequency (Hz)")
+        plt.ylabel("Magnitude (dB)")
+        plt.title("S21 Plot")
+        plt.show()
+
+    return f, s21
+
+if __name__ == "__main__":
+    f1, s11 = test_s11()
+    f2, s21 = test_s21()
+
+    plt.plot(f1, s11, f2, s21)
+    plt.xlim([5e9, 15e9])
+    plt.xlabel("Frequency (Hz)")
+    plt.ylabel("Magnitude (dB)")
+    plt.title("S11 and S21 Plots")
+    plt.legend(["S11", "S21"])
+    plt.grid()
+    plt.show()
 

@@ -97,7 +97,6 @@ def compute_g_truncated(r, gamma, thicknesses):
     for i in range(n):
         d_slice = d[:i+1, np.newaxis]  # Expand d to (i+1, 1) for broadcasting
         a = (gamma[:i+1] * d_slice).sum(axis=0)  # Sum over axis 0
-        print(a)
         g_arr += r[i] * prev * np.exp(-2 * a)
         prev *= (1 - r[i]**2)
 
@@ -212,7 +211,7 @@ def compare_s11_to_files(materials, thicknesses, filepaths, fdtd_timesteps=30000
     ax1.plot(freqs, s11_xf, label='S11 from XF TFSF')
     
     ax1.set_xlim(1e9, 20e9)
-    ax1.set_ylim(np.floor(np.min(s11_fdtd_dB[:fdtd.timestep_duration])/5)*5, 0)
+    ax1.set_ylim(np.floor(np.min(s11_fdtd_dB[:fdtd.timestep_duration])/5)*3, 0)
     ax1.set_xticks(np.arange(1e9, 21e9, 1e9), labels=[str(int(x/1e9)) for x in np.arange(1e9, 21e9, 1e9)])
     ax1.set_xlabel('Frequency (GHz)')
     ax1.set_ylabel('S11 (dB)')
